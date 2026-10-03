@@ -1,0 +1,9 @@
+.mrs-dtc-admin .mrs-dtc-cards { display:grid; grid-template-columns:repeat(4,1fr); gap:15px; margin:20px 0; max-width:1100px; }
+.mrs-dtc-admin .mrs-dtc-cards > div { background:#fff; border:1px solid #dcdcde; border-radius:8px; padding:18px; }
+.mrs-dtc-admin .mrs-dtc-cards span,.mrs-dtc-admin .mrs-dtc-cards strong { display:block; }
+.mrs-dtc-admin .mrs-dtc-cards span { color:#646970; }
+.mrs-dtc-admin .mrs-dtc-cards strong { font-size:25px; margin-top:8px; }
+.mrs-dtc-admin-box { background:#fff; border:1px solid #dcdcde; border-radius:8px; padding:20px; margin-top:20px; max-width:1100px; }
+.mrs-dtc-admin code { padding:8px 12px; background:#f0f0f1; }
+.mrs-dtc-admin .form-table input { min-width:280px; }
+@media(max-width:900px){.mrs-dtc-admin .mrs-dtc-cards{grid-template-columns:repeat(2,1fr)}}
