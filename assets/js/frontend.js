@@ -180,8 +180,10 @@
                         <button type="button" title="${escapeHtml(S.down)}" aria-label="${escapeHtml(S.down)}" data-down="${escapeHtml(a.address_key)}" ${i === state.addresses.length - 1 ? 'disabled' : ''}>↓</button>
                         <button type="button" title="${escapeHtml(S.remove)}" aria-label="${escapeHtml(S.remove)}" data-delete="${escapeHtml(a.address_key)}">🗑</button>
                     </div>`;
+                const handle = readonly ? '' : `<span class="mrs-dtc-handle" data-drag="${escapeHtml(a.address_key)}" title="${escapeHtml(S.drag)}" aria-hidden="true">⠿</span>`;
                 return `
                 <div class="mrs-dtc-address-item" data-key="${escapeHtml(a.address_key)}">
+                    ${handle}
                     <div class="mrs-dtc-address-number">${i + 1}</div>
                     <div class="mrs-dtc-address-main">
                         <strong>${escapeHtml(title)}</strong>
@@ -434,7 +436,6 @@
             state.calculationId = data.id;
             dirty = false;
             setMessage(`${updating ? S.updated : S.saved} (#${data.id})`, 'success');
-            if (mode === 'new') refreshSavedList(data.id);
         } catch (error) {
             setMessage(error.message || S.saveError, 'error');
         } finally {
@@ -488,18 +489,6 @@
         }
     }
 
-    async function refreshSavedList(selectedId = 0) {
-        const select = $('[data-load]');
-        try {
-            const items = await api('calculations');
-            select.innerHTML = `<option value="">${escapeHtml(S.openPlaceholder)}</option>` + items.map(item =>
-                `<option value="${item.id}" ${item.id === selectedId ? 'selected' : ''}>${escapeHtml(`${item.created_at_local} – ${item.address_count} ${S.addresses} – ${formatTime(item.calculated_total_seconds)}`)}</option>`
-            ).join('');
-        } catch (error) {
-            // Die Liste ist nur eine Komfortfunktion.
-        }
-    }
-
     function resetCalculation() {
         clearTimeout(routeTimer);
         routeSeq++;
@@ -516,7 +505,6 @@
 
         $('#mrs-dtc-standard-seconds').value = state.standardSeconds;
         $('#mrs-dtc-additional-minutes').value = 0;
-        $('[data-load]').value = '';
         $('[data-results]').innerHTML = '';
         setStatus('');
         setMessage('');
@@ -524,6 +512,131 @@
         renderAddresses();
         redrawMap();
     }
+
+
+    /* ---------- Drag & Drop (Maus, Touch, Stift) ---------- */
+
+    // Pointer-Events statt HTML5-Drag&Drop, damit es auch auf dem Smartphone funktioniert.
+    // Gezogen wird am Griff (⠿); die Buttons ↑ ↓ bleiben für die Tastatur erhalten.
+    const dragState = {active: null, raf: 0, lastY: 0};
+
+    function dragTransforms() {
+        const d = dragState.active;
+        if (!d) return;
+        const list = d.list;
+        const delta = (dragState.lastY - d.startY) + (list.scrollTop - d.startScroll);
+        d.item.style.transform = `translateY(${delta}px)`;
+
+        // Ziel-Index anhand der Mitte der gezogenen Zeile bestimmen.
+        const center = d.rects[d.from].top + d.rects[d.from].height / 2 + delta;
+        let to = d.from;
+        d.rects.forEach((r, j) => {
+            const mid = r.top + r.height / 2;
+            if (j < d.from && center < mid) to = Math.min(to, j);
+            if (j > d.from && center > mid) to = Math.max(to, j);
+        });
+        d.to = to;
+
+        // Die übrigen Zeilen weichen sichtbar aus.
+        const shift = d.rects[d.from].height + d.gap;
+        d.items.forEach((el, j) => {
+            if (j === d.from) return;
+            let offset = 0;
+            if (d.from < d.to && j > d.from && j <= d.to) offset = -shift;
+            if (d.to < d.from && j >= d.to && j < d.from) offset = shift;
+            el.style.transform = offset ? `translateY(${offset}px)` : '';
+        });
+    }
+
+    function dragAutoScroll() {
+        const d = dragState.active;
+        if (!d) return;
+        const box = d.list.getBoundingClientRect();
+        const edge = 40;
+        let speed = 0;
+        if (dragState.lastY < box.top + edge) speed = -Math.ceil((box.top + edge - dragState.lastY) / 4);
+        if (dragState.lastY > box.bottom - edge) speed = Math.ceil((dragState.lastY - (box.bottom - edge)) / 4);
+        if (speed) {
+            d.list.scrollTop += speed;
+            dragTransforms();
+        }
+        dragState.raf = requestAnimationFrame(dragAutoScroll);
+    }
+
+    function onDragMove(event) {
+        if (!dragState.active || event.pointerId !== dragState.active.pointerId) return;
+        dragState.lastY = event.clientY;
+        dragTransforms();
+    }
+
+    function endDrag(commit) {
+        const d = dragState.active;
+        if (!d) return;
+        dragState.active = null;
+        cancelAnimationFrame(dragState.raf);
+        window.removeEventListener('pointermove', onDragMove);
+        window.removeEventListener('pointerup', onDragUp);
+        window.removeEventListener('pointercancel', onDragCancel);
+        document.removeEventListener('keydown', onDragKey);
+
+        d.list.classList.remove('is-sorting');
+        d.items.forEach(el => {
+            el.style.transform = '';
+            el.classList.remove('is-dragging');
+        });
+
+        if (commit && d.to !== d.from) {
+            const [moved] = state.addresses.splice(d.from, 1);
+            state.addresses.splice(d.to, 0, moved);
+            markDirty();
+            renderAddresses();
+            redrawMap();
+            invalidateRoute();
+        }
+    }
+
+    function onDragUp(event) {
+        if (dragState.active && event.pointerId === dragState.active.pointerId) endDrag(true);
+    }
+    function onDragCancel() { endDrag(false); }
+    function onDragKey(event) { if (event.key === 'Escape') endDrag(false); }
+
+    $('[data-address-list]').addEventListener('pointerdown', event => {
+        const handle = event.target.closest('[data-drag]');
+        if (!handle || readonly || dragState.active) return;
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+
+        const list = event.currentTarget;
+        const items = [...list.querySelectorAll('.mrs-dtc-address-item')];
+        if (items.length < 2) return;
+
+        const item = handle.closest('.mrs-dtc-address-item');
+        const from = items.indexOf(item);
+        if (from < 0) return;
+
+        event.preventDefault();
+        const rects = items.map(el => el.getBoundingClientRect());
+        dragState.lastY = event.clientY;
+        dragState.active = {
+            list, items, item, from, to: from, rects,
+            pointerId: event.pointerId,
+            startY: event.clientY,
+            startScroll: list.scrollTop,
+            gap: rects.length > 1 ? Math.max(0, rects[1].top - rects[0].bottom) : 0
+        };
+
+        list.classList.add('is-sorting');
+        item.classList.add('is-dragging');
+        if (handle.setPointerCapture) {
+            try { handle.setPointerCapture(event.pointerId); } catch (e) { /* ignorieren */ }
+        }
+
+        window.addEventListener('pointermove', onDragMove);
+        window.addEventListener('pointerup', onDragUp);
+        window.addEventListener('pointercancel', onDragCancel);
+        document.addEventListener('keydown', onDragKey);
+        dragState.raf = requestAnimationFrame(dragAutoScroll);
+    });
 
     /* ---------- Events ---------- */
 
@@ -574,15 +687,6 @@
             const address = state.addresses.find(a => a.address_key === event.target.dataset.seconds);
             if (address) event.target.value = address.seconds;
         }
-        if (event.target.matches('[data-load]')) {
-            const id = parseInt(event.target.value, 10);
-            if (!id) return;
-            if (dirty && !window.confirm(S.confirmDiscard)) {
-                event.target.value = state.calculationId ? String(state.calculationId) : '';
-                return;
-            }
-            loadCalculation(id);
-        }
     });
 
     $('#mrs-dtc-address-search').addEventListener('keydown', event => {
@@ -610,9 +714,8 @@
             .forEach(el => el.setAttribute('disabled', ''));
     }
 
-    if (mode === 'new') {
-        refreshSavedList();
-    } else {
+    // Im Dashboard (Anzeigen/Bearbeiten) wird die gespeicherte Berechnung direkt geladen.
+    if (mode !== 'new') {
         $('[data-load-wrap]').hidden = true;
         const id = parseInt(root.dataset.id, 10);
         if (id) loadCalculation(id);

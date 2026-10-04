@@ -46,8 +46,6 @@ class MRS_DTC_Frontend {
                 'loadError' => 'Die Berechnung konnte nicht geladen werden.',
                 'confirmNoRoute' => 'Die Route konnte nicht berechnet werden. Trotzdem ohne Strecke speichern?',
                 'confirmDiscard' => 'Nicht gespeicherte Änderungen gehen verloren. Fortfahren?',
-                'openPlaceholder' => '– Gespeicherte Berechnung öffnen –',
-                'addresses' => 'Adressen',
                 'pending' => 'wird berechnet …',
                 'secondsShort' => 'Sek.',
                 'secondsLong' => 'Sekunden',
@@ -57,6 +55,7 @@ class MRS_DTC_Frontend {
                 'up' => 'Nach oben',
                 'down' => 'Nach unten',
                 'remove' => 'Adresse löschen',
+                'drag' => 'Zum Umsortieren ziehen',
             ],
         ]);
     }
@@ -79,14 +78,13 @@ class MRS_DTC_Frontend {
         <div class="mrs-dtc" data-mrs-dtc data-mode="<?php echo esc_attr($mode); ?>" data-id="<?php echo esc_attr((string) $calculation_id); ?>">
             <noscript><p class="mrs-dtc-notice-box">Für den Rechner wird JavaScript benötigt.</p></noscript>
 
-            <!-- <div class="mrs-dtc-header">
+            <div class="mrs-dtc-header">
                 <h2>Zustellzeit berechnen</h2>
                 <p>Adressen hinzufügen, Route berechnen und die berechnete Zustellzeit dokumentieren.</p>
                 <div class="mrs-dtc-load" data-load-wrap>
-                    <select data-load aria-label="Gespeicherte Berechnung öffnen"></select>
                     <button type="button" class="mrs-dtc-button" data-action="new">Neue Berechnung</button>
                 </div>
-            </div> -->
+            </div>
 
             <div class="mrs-dtc-grid">
                 <section class="mrs-dtc-panel mrs-dtc-search-panel">
