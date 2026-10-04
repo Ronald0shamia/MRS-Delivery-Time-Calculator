@@ -77,3 +77,32 @@
     .mrs-dtc-summary { grid-template-columns:repeat(2,1fr); }
     .mrs-dtc-map { min-height:340px; height:55vh; }
 }
+
+/* ---- Ergänzungen 1.1.0 ---- */
+.mrs-dtc-notice-box { padding:12px 16px; background:#fff8e5; border-left:4px solid #dba617; }
+.mrs-dtc-load { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.mrs-dtc-load[hidden] { display:none; }
+.mrs-dtc-load select { max-width:100%; min-height:40px; }
+.mrs-dtc-header { margin-bottom:18px; }
+.mrs-dtc-extra { margin-top:16px; margin-bottom:0; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; }
+.mrs-dtc-extra label { margin:0; }
+.mrs-dtc-status.error { color:#b32d2e; }
+.mrs-dtc-message.success { color:#008a20; }
+.mrs-dtc-result { width:100%; }
+.mrs-dtc-save-row { margin-top:16px; }
+.mrs-dtc-save { padding:12px 28px; font-size:16px; }
+.mrs-dtc-actions .mrs-dtc-button { min-height:42px; }
+.mrs-dtc input:disabled { background:#f1f4f6; color:#646970; }
+.mrs-dtc-map { width:100%; z-index:0; }
+.mrs-dtc .leaflet-container img { max-width:none !important; }
+
+/* Desktop: Suche + Liste links, Karte rechts (Suche, Karte, Liste = Reihenfolge auf dem Handy) */
+.mrs-dtc-grid { grid-template-areas:"search map" "list map"; align-items:start; }
+.mrs-dtc-search-panel { grid-area:search; }
+.mrs-dtc-map-panel { grid-area:map; position:sticky; top:16px; }
+.mrs-dtc-list-panel { grid-area:list; }
+@media (max-width: 900px) {
+    .mrs-dtc-grid { grid-template-areas:"search" "map" "list"; }
+    .mrs-dtc-map-panel { position:static; }
+    .mrs-dtc-save { width:100%; }
+}

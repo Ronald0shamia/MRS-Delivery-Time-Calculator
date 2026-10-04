@@ -3,7 +3,7 @@ Contributors: mrs-dev
 Tags: delivery, route, openstreetmap, leaflet, nominatim, osrm
 Requires at least: 6.0
 Requires PHP: 8.1
-Stable tag: 1.0.0
+Stable tag: 1.1.0
 License: GPLv2 or later
 
 == Description ==
@@ -14,7 +14,7 @@ Berechnet und dokumentiert Zeitung-Zustelltouren mit OpenStreetMap, Nominatim un
 
 == External Services ==
 Dieses Plugin nutzt:
-* OpenStreetMap-Kacheln für die Kartenanzeige.
+* OpenStreetMap-Kacheln für die Kartenanzeige (der Browser lädt sie von tile.openstreetmap.org).
 * Nominatim für die Adresssuche.
 * OSRM für die Routenberechnung.
 
@@ -27,5 +27,12 @@ Die externen Dienste können IP-Adressen und Anfrageinformationen nach ihren jew
 4. Unter Delivery Time > Einstellungen die Standardwerte prüfen.
 
 == Changelog ==
+= 1.1.0 =
+* REST-Endpunkte nur für angemeldete Benutzer; eigene Berechnungen pro Benutzer.
+* Gehzeit aus Strecke und Gehgeschwindigkeit; Routing-Dauer separat.
+* Leaflet lokal gebündelt, Route automatisch, Speichern/Öffnen/Bearbeiten/Löschen.
+* Nominatim: Cache, Drosselung, Länderfilter, verständliche Fehlermeldungen.
+* Speichern in einer Transaktion; Routen bis 300 Adressen.
+
 = 1.0.0 =
 * Erste Version.

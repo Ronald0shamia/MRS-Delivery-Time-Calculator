@@ -4,48 +4,96 @@ defined('ABSPATH') || exit;
 class MRS_DTC_Frontend {
     public static function init(): void {
         add_shortcode('mrs_delivery_time_calculator', [__CLASS__, 'shortcode']);
-        add_action('wp_enqueue_scripts', [__CLASS__, 'assets']);
     }
 
-    public static function assets(): void {
-        if (!is_singular()) return;
-        global $post;
-        if (!$post || !has_shortcode((string) $post->post_content, 'mrs_delivery_time_calculator')) return;
+    /**
+     * Lädt CSS/JS. Wird nur aufgerufen, wenn der Rechner wirklich ausgegeben wird
+     * (funktioniert dadurch auch mit Page-Buildern und Widgets) oder im Dashboard.
+     */
+    public static function enqueue_assets(): void {
+        static $done = false;
+        if ($done) return;
+        $done = true;
 
-        wp_enqueue_style('leaflet', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', [], '1.9.4');
-        wp_enqueue_script('leaflet', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js', [], '1.9.4', true);
-        wp_enqueue_style('mrs-dtc-frontend', MRS_DTC_URL . 'assets/css/frontend.css', [], MRS_DTC_VERSION);
-        wp_enqueue_script('mrs-dtc-frontend', MRS_DTC_URL . 'assets/js/frontend.js', ['leaflet'], MRS_DTC_VERSION, true);
+        wp_enqueue_style('mrs-dtc-leaflet', MRS_DTC_URL . 'assets/vendor/leaflet/leaflet.css', [], '1.9.4');
+        wp_enqueue_script('mrs-dtc-leaflet', MRS_DTC_URL . 'assets/vendor/leaflet/leaflet.js', [], '1.9.4', true);
+        wp_enqueue_style('mrs-dtc-frontend', MRS_DTC_URL . 'assets/css/frontend.css', ['mrs-dtc-leaflet'], MRS_DTC_VERSION);
+        wp_enqueue_script('mrs-dtc-frontend', MRS_DTC_URL . 'assets/js/frontend.js', ['mrs-dtc-leaflet'], MRS_DTC_VERSION, true);
 
+        $s = MRS_DTC_Settings::all();
         wp_localize_script('mrs-dtc-frontend', 'MRS_DTC', [
-            'restUrl' => esc_url_raw(rest_url('mrs-dtc/v1/')),
+            'restUrl' => esc_url_raw(rest_url(MRS_DTC_REST_API::NS . '/')),
             'nonce' => wp_create_nonce('wp_rest'),
-            'settings' => get_option('mrs_dtc_settings', []),
+            'settings' => [
+                'standard_seconds' => (int) $s['standard_seconds'],
+                'walking_speed_kmh' => (float) $s['walking_speed_kmh'],
+                'map_zoom' => (int) $s['map_zoom'],
+            ],
             'strings' => [
+                'serverError' => 'Der Server ist momentan nicht erreichbar. Bitte versuchen Sie es später erneut.',
                 'searching' => 'Suche läuft …',
-                'noResults' => 'Keine Adresse gefunden.',
+                'searchTooShort' => 'Bitte geben Sie mindestens 3 Zeichen ein.',
+                'noResults' => 'Adresse konnte nicht gefunden werden. Prüfen Sie die Schreibweise oder ergänzen Sie den Ort.',
                 'searchError' => 'Die Adresssuche ist momentan nicht erreichbar.',
+                'duplicate' => 'Diese Adresse ist bereits in der Liste.',
+                'routeRunning' => 'Route wird berechnet …',
                 'routeError' => 'Die Route konnte nicht berechnet werden.',
+                'routeDone' => 'Route erfolgreich berechnet.',
+                'tileError' => 'Die Kartendaten konnten nicht geladen werden.',
                 'saveError' => 'Die Berechnung konnte nicht gespeichert werden.',
                 'saved' => 'Berechnung gespeichert.',
+                'updated' => 'Berechnung aktualisiert.',
+                'loadError' => 'Die Berechnung konnte nicht geladen werden.',
+                'confirmNoRoute' => 'Die Route konnte nicht berechnet werden. Trotzdem ohne Strecke speichern?',
+                'confirmDiscard' => 'Nicht gespeicherte Änderungen gehen verloren. Fortfahren?',
+                'openPlaceholder' => '– Gespeicherte Berechnung öffnen –',
+                'addresses' => 'Adressen',
+                'pending' => 'wird berechnet …',
+                'secondsShort' => 'Sek.',
+                'secondsLong' => 'Sekunden',
+                'seconds' => 'Sekunden',
+                'popupTime' => 'Zustellzeit',
+                'popupPosition' => 'Position',
+                'up' => 'Nach oben',
+                'down' => 'Nach unten',
+                'remove' => 'Adresse löschen',
             ],
         ]);
     }
 
     public static function shortcode(): string {
+        return self::render('new', 0);
+    }
+
+    /**
+     * @param string $mode new|edit|view
+     */
+    public static function render(string $mode = 'new', int $calculation_id = 0): string {
+        if (!is_user_logged_in() || !current_user_can(MRS_DTC_REST_API::capability())) {
+            return '<p class="mrs-dtc-notice-box">Bitte melden Sie sich an, um den Zustellzeit-Rechner zu verwenden.</p>';
+        }
+        $mode = in_array($mode, ['new', 'edit', 'view'], true) ? $mode : 'new';
+        self::enqueue_assets();
+
         ob_start(); ?>
-        <div class="mrs-dtc" data-mrs-dtc>
-            <div class="mrs-dtc-header">
+        <div class="mrs-dtc" data-mrs-dtc data-mode="<?php echo esc_attr($mode); ?>" data-id="<?php echo esc_attr((string) $calculation_id); ?>">
+            <noscript><p class="mrs-dtc-notice-box">Für den Rechner wird JavaScript benötigt.</p></noscript>
+
+            <!-- <div class="mrs-dtc-header">
                 <h2>Zustellzeit berechnen</h2>
                 <p>Adressen hinzufügen, Route berechnen und die berechnete Zustellzeit dokumentieren.</p>
-            </div>
+                <div class="mrs-dtc-load" data-load-wrap>
+                    <select data-load aria-label="Gespeicherte Berechnung öffnen"></select>
+                    <button type="button" class="mrs-dtc-button" data-action="new">Neue Berechnung</button>
+                </div>
+            </div> -->
 
             <div class="mrs-dtc-grid">
-                <section class="mrs-dtc-panel mrs-dtc-controls">
-                    <div class="mrs-dtc-field">
+                <section class="mrs-dtc-panel mrs-dtc-search-panel">
+                    <div class="mrs-dtc-field" data-search-field>
                         <label for="mrs-dtc-address-search">Adresse suchen</label>
                         <div class="mrs-dtc-search-row">
-                            <input id="mrs-dtc-address-search" type="text" autocomplete="off" placeholder="z. B. Hauptstraße 25, 79725 Laufenburg">
+                            <input id="mrs-dtc-address-search" type="text" autocomplete="off" maxlength="200" placeholder="z. B. Hauptstraße 25, 79725 Laufenburg">
                             <button type="button" class="mrs-dtc-button" data-action="search">Suchen</button>
                         </div>
                         <div class="mrs-dtc-status" data-status aria-live="polite"></div>
@@ -55,19 +103,17 @@ class MRS_DTC_Frontend {
                     <div class="mrs-dtc-field">
                         <label for="mrs-dtc-standard-seconds">Standardzeit pro Haus</label>
                         <div class="mrs-dtc-input-unit">
-                            <input id="mrs-dtc-standard-seconds" type="number" min="0" step="1" value="8">
+                            <input id="mrs-dtc-standard-seconds" type="number" min="0" max="3600" step="1" value="8">
                             <span>Sekunden</span>
                         </div>
                     </div>
+                </section>
 
-                    <div class="mrs-dtc-field">
-                        <label for="mrs-dtc-additional-minutes">Zusätzliche Zeit</label>
-                        <div class="mrs-dtc-input-unit">
-                            <input id="mrs-dtc-additional-minutes" type="number" min="0" step="1" value="0">
-                            <span>Minuten</span>
-                        </div>
-                    </div>
+                <section class="mrs-dtc-map-panel">
+                    <div id="mrs-dtc-map" class="mrs-dtc-map"></div>
+                </section>
 
+                <section class="mrs-dtc-panel mrs-dtc-list-panel">
                     <div class="mrs-dtc-addresses">
                         <div class="mrs-dtc-section-title">
                             <h3>Adressen</h3>
@@ -78,14 +124,17 @@ class MRS_DTC_Frontend {
                         </div>
                     </div>
 
+                    <div class="mrs-dtc-field mrs-dtc-extra">
+                        <label for="mrs-dtc-additional-minutes">Zusätzliche Zeit</label>
+                        <div class="mrs-dtc-input-unit">
+                            <input id="mrs-dtc-additional-minutes" type="number" min="0" max="1440" step="1" value="0">
+                            <span>Minuten</span>
+                        </div>
+                    </div>
+
                     <div class="mrs-dtc-actions">
                         <button type="button" class="mrs-dtc-button mrs-dtc-primary" data-action="route" disabled>Route berechnen</button>
-                        <button type="button" class="mrs-dtc-button" data-action="save" disabled>Berechnung speichern</button>
                     </div>
-                </section>
-
-                <section class="mrs-dtc-map-panel">
-                    <div id="mrs-dtc-map" class="mrs-dtc-map"></div>
                 </section>
             </div>
 
@@ -100,7 +149,12 @@ class MRS_DTC_Frontend {
 
             <div class="mrs-dtc-notice">
                 <strong>Hinweis:</strong> Die angezeigte Gesamtzeit ist eine <strong>berechnete Zustellzeit</strong>.
-                Die Routing-/Gehzeit ist nicht automatisch mit der tatsächlichen Arbeitszeit gleichzusetzen.
+                Die Gehzeit wird aus der Strecke und der eingestellten Gehgeschwindigkeit berechnet und ist nicht automatisch mit der tatsächlichen Arbeitszeit gleichzusetzen.
+                Routing-Dauer laut Routing-Dienst (nur zur Information): <strong data-summary="routing">–</strong>
+            </div>
+
+            <div class="mrs-dtc-actions mrs-dtc-save-row">
+                <button type="button" class="mrs-dtc-button mrs-dtc-primary mrs-dtc-save" data-action="save" disabled>Berechnung speichern</button>
             </div>
 
             <div class="mrs-dtc-message" data-message role="status" aria-live="polite"></div>
