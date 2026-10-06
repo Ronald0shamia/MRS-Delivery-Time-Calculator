@@ -26,7 +26,11 @@ class MRS_DTC_Frontend {
             'nonce' => wp_create_nonce('wp_rest'),
             'settings' => [
                 'standard_seconds' => (int) $s['standard_seconds'],
-                'walking_speed_kmh' => (float) $s['walking_speed_kmh'],
+                'speeds' => [
+                    'foot' => (float) $s['walking_speed_kmh'],
+                    'bike' => (float) $s['bike_speed_kmh'],
+                    'car' => (float) $s['car_speed_kmh'],
+                ],
                 'map_zoom' => (int) $s['map_zoom'],
             ],
             'strings' => [
@@ -56,8 +60,23 @@ class MRS_DTC_Frontend {
                 'down' => 'Nach unten',
                 'remove' => 'Adresse löschen',
                 'drag' => 'Zum Umsortieren ziehen',
+                'travel_foot' => 'Gehzeit',
+                'travel_bike' => 'Fahrradzeit',
+                'travel_car' => 'Fahrzeit',
             ],
         ]);
+    }
+
+    /**
+     * Inline-SVG-Icons (statisch, kein externer Request).
+     */
+    private static function icon(string $mode): string {
+        $icons = [
+            'foot' => '<circle cx="13.5" cy="4.5" r="1.8"/><path d="M12.5 8.5l-2.5 3.5 3 2.5.5 5.5"/><path d="M10 12l-2.5 8"/><path d="M12.5 8.5l3 2.5 2.5-.5"/><path d="M12.5 8.5L9 10"/>',
+            'bike' => '<circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/>',
+            'car' => '<path d="M5 17H4a1 1 0 0 1-1-1v-4l2-5.1a1 1 0 0 1 .93-.63h12.14a1 1 0 0 1 .93.63L21 12v4a1 1 0 0 1-1 1h-1"/><path d="M3 12h18"/><circle cx="7.5" cy="17" r="2"/><circle cx="16.5" cy="17" r="2"/><path d="M9.5 17h5"/>',
+        ];
+        return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' . ($icons[$mode] ?? '') . '</svg>';
     }
 
     public static function shortcode(): string {
@@ -130,8 +149,16 @@ class MRS_DTC_Frontend {
                         </div>
                     </div>
 
-                    <div class="mrs-dtc-actions">
-                        <button type="button" class="mrs-dtc-button mrs-dtc-primary" data-action="route" disabled>Route berechnen</button>
+                    <div class="mrs-dtc-route">
+                        <span class="mrs-dtc-route-title" id="mrs-dtc-route-title">Route berechnen</span>
+                        <div class="mrs-dtc-modes" role="group" aria-labelledby="mrs-dtc-route-title">
+                            <?php foreach ([['foot', 'Zu Fuß', 'Route zu Fuß berechnen'], ['bike', 'Fahrrad', 'Route mit dem Fahrrad berechnen'], ['car', 'Auto', 'Route mit dem Auto berechnen']] as [$m, $label, $title]) : ?>
+                                <button type="button" class="mrs-dtc-mode" data-mode-btn="<?php echo esc_attr($m); ?>" aria-pressed="<?php echo $m === 'foot' ? 'true' : 'false'; ?>" title="<?php echo esc_attr($title); ?>">
+                                    <?php echo self::icon($m); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- statisches SVG ?>
+                                    <span><?php echo esc_html($label); ?></span>
+                                </button>
+                            <?php endforeach; ?>
+                        </div>
                     </div>
                 </section>
             </div>
@@ -140,14 +167,14 @@ class MRS_DTC_Frontend {
                 <div><span>Gesamt Häuser</span><strong data-summary="houses">0</strong></div>
                 <div><span>Strecke</span><strong data-summary="distance">0,00 km</strong></div>
                 <div><span>Hauszustellzeit</span><strong data-summary="house">00:00:00</strong></div>
-                <div><span>Gehzeit</span><strong data-summary="walking">00:00:00</strong></div>
+                <div><span data-summary-label="travel">Gehzeit</span><strong data-summary="travel">00:00:00</strong></div>
                 <div><span>Zusatzzeit</span><strong data-summary="additional">00:00:00</strong></div>
                 <div class="mrs-dtc-total"><span>Berechnete Zustellzeit</span><strong data-summary="total">00:00:00</strong></div>
             </section>
 
             <div class="mrs-dtc-notice">
                 <strong>Hinweis:</strong> Die angezeigte Gesamtzeit ist eine <strong>berechnete Zustellzeit</strong>.
-                Die Gehzeit wird aus der Strecke und der eingestellten Gehgeschwindigkeit berechnet und ist nicht automatisch mit der tatsächlichen Arbeitszeit gleichzusetzen.
+                Die Geh- bzw. Fahrzeit wird aus der Strecke und der eingestellten Durchschnittsgeschwindigkeit des gewählten Verkehrsmittels berechnet und ist nicht automatisch mit der tatsächlichen Arbeitszeit gleichzusetzen.
                 Routing-Dauer laut Routing-Dienst (nur zur Information): <strong data-summary="routing">–</strong>
             </div>
 

@@ -42,6 +42,12 @@
         return data;
     }
 
+    /* ---------- Verkehrsmittel ---------- */
+
+    const MODES = ['foot', 'bike', 'car'];
+    const MODE_COLORS = {foot: '#e8590c', bike: '#1a7f37', car: '#2271b1'};
+    const speedFor = (mode) => Number((defaultSettings.speeds || {})[mode]) || ({foot: 5, bike: 15, car: 30})[mode];
+
     /* ---------- State ---------- */
 
     const state = {
@@ -50,7 +56,8 @@
         routeLayer: null,
         standardSeconds: Number(defaultSettings.standard_seconds ?? 8),
         additionalMinutes: 0,
-        walkingSpeed: Number(defaultSettings.walking_speed_kmh || 5),
+        travelMode: 'foot',
+        travelSpeed: speedFor('foot'),
         calculationId: 0,
         title: ''
     };
@@ -59,6 +66,7 @@
     let routeAbort = null;
     let routeSeq = 0;
     let routePending = false;
+    let routeRunning = false;
     let searchBusy = false;
     let messageTimer = null;
     let dirty = false;
@@ -140,9 +148,11 @@
         const house = state.addresses.reduce((sum, a) => sum + Math.max(0, Number(a.seconds) || 0), 0);
         const distance = state.route ? Number(state.route.distance_meters || 0) : 0;
         // Gleiche Formel wie auf dem Server (MRS_DTC_Calculator::calculate)
-        const walking = state.walkingSpeed > 0 ? Math.round(distance / 1000 / state.walkingSpeed * 3600) : 0;
+        const travel = state.travelSpeed > 0 ? Math.round(distance / 1000 / state.travelSpeed * 3600) : 0;
         const additional = Math.round(Math.max(0, Number(state.additionalMinutes) || 0) * 60);
-        const total = house + walking + additional;
+        const total = house + travel + additional;
+
+        $('[data-summary-label="travel"]').textContent = S['travel_' + state.travelMode] || '';
 
         $('[data-summary="houses"]').textContent = state.addresses.length;
         $('[data-summary="house"]').textContent = formatTime(house);
@@ -150,14 +160,14 @@
 
         if (routePending) {
             $('[data-summary="distance"]').textContent = S.pending;
-            $('[data-summary="walking"]').textContent = S.pending;
+            $('[data-summary="travel"]').textContent = S.pending;
             $('[data-summary="routing"]').textContent = S.pending;
             $('[data-summary="total"]').textContent = formatTime(house + additional) + ' +';
             return;
         }
 
         $('[data-summary="distance"]').textContent = state.route ? formatDistance(distance) : '0,00 km';
-        $('[data-summary="walking"]').textContent = formatTime(walking);
+        $('[data-summary="travel"]').textContent = formatTime(travel);
         $('[data-summary="routing"]').textContent = state.route ? formatTime(state.route.duration_seconds) : '–';
         $('[data-summary="total"]').textContent = formatTime(total);
     }
@@ -198,9 +208,30 @@
             }).join('');
         }
 
-        $('[data-action="route"]').disabled = readonly || state.addresses.length < 2;
+        updateModeButtons();
         $('[data-action="save"]').disabled = readonly || state.addresses.length < 1;
         recalculate();
+    }
+
+    // Die drei Verkehrsmittel-Buttons: aktiver Zustand + Sperre während der Berechnung.
+    function updateModeButtons() {
+        root.querySelectorAll('[data-mode-btn]').forEach(btn => {
+            const active = btn.dataset.modeBtn === state.travelMode;
+            btn.classList.toggle('is-active', active);
+            btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+            btn.disabled = readonly || routeRunning;
+        });
+    }
+
+    function setTravelMode(mode) {
+        if (!MODES.includes(mode)) return;
+        if (mode !== state.travelMode) {
+            state.travelMode = mode;
+            state.travelSpeed = speedFor(mode);
+            markDirty();
+        }
+        // Ein Klick berechnet die Route immer neu (auch beim bereits aktiven Verkehrsmittel).
+        invalidateRoute(true);
     }
 
     function redrawMap(fit = false) {
@@ -242,7 +273,7 @@
         }
         const coords = state.route?.geometry?.coordinates;
         if (coords && coords.length > 1) {
-            state.routeLayer = L.polyline(coords.map(c => [c[1], c[0]]), {color: '#e8590c', weight: 5, opacity: 0.85}).addTo(map);
+            state.routeLayer = L.polyline(coords.map(c => [c[1], c[0]]), {color: MODE_COLORS[state.travelMode] || '#e8590c', weight: 5, opacity: 0.85}).addTo(map);
         }
     }
 
@@ -254,8 +285,10 @@
         routeTimer = null;
         routeSeq++;
         if (routeAbort) routeAbort.abort();
+        routeRunning = false;
         state.route = null;
         drawRoute();
+        updateModeButtons();
 
         if (state.addresses.length < 2 || readonly) {
             routePending = false;
@@ -279,7 +312,8 @@
         if (routeAbort) routeAbort.abort();
         routeAbort = new AbortController();
         routePending = true;
-        $('[data-action="route"]').disabled = true;
+        routeRunning = true;
+        updateModeButtons();
         setMessage(S.routeRunning);
         recalculate();
 
@@ -287,7 +321,7 @@
             const data = await api('route', {
                 method: 'POST',
                 signal: routeAbort.signal,
-                body: {coordinates: state.addresses.map(a => ({lat: a.latitude, lon: a.longitude}))}
+                body: {mode: state.travelMode, coordinates: state.addresses.map(a => ({lat: a.latitude, lon: a.longitude}))}
             });
             if (mine !== routeSeq) return;
             state.route = data;
@@ -302,7 +336,8 @@
         } finally {
             if (mine === routeSeq) {
                 routePending = false;
-                $('[data-action="route"]').disabled = readonly || state.addresses.length < 2;
+                routeRunning = false;
+                updateModeButtons();
                 recalculate();
             }
         }
@@ -410,7 +445,8 @@
             title: state.title,
             standard_seconds: state.standardSeconds,
             additional_minutes: Math.round(state.additionalMinutes),
-            walking_speed_kmh: state.walkingSpeed,
+            travel_mode: state.travelMode,
+            travel_speed_kmh: state.travelSpeed,
             route_distance_meters: state.route?.distance_meters || 0,
             route_duration_seconds: state.route?.duration_seconds || 0,
             route: state.route ? {geometry: state.route.geometry} : null,
@@ -459,7 +495,10 @@
         }));
         state.standardSeconds = c.standard_seconds;
         state.additionalMinutes = c.additional_minutes;
-        state.walkingSpeed = c.walking_speed_kmh || state.walkingSpeed; // Gehgeschwindigkeit von damals
+        // Verkehrsmittel und Geschwindigkeit von damals wiederherstellen
+        state.travelMode = MODES.includes(c.travel_mode) ? c.travel_mode : 'foot';
+        state.travelSpeed = c.travel_speed_kmh || speedFor(state.travelMode);
+        routeRunning = false;
         state.title = c.title || '';
         state.calculationId = c.id;
         state.route = c.route ? {
@@ -497,7 +536,9 @@
         state.route = null;
         state.additionalMinutes = 0;
         state.standardSeconds = Number(defaultSettings.standard_seconds ?? 8);
-        state.walkingSpeed = Number(defaultSettings.walking_speed_kmh || 5);
+        state.travelMode = 'foot';
+        state.travelSpeed = speedFor('foot');
+        routeRunning = false;
         state.calculationId = 0;
         state.title = '';
         routePending = false;
@@ -643,7 +684,8 @@
     root.addEventListener('click', event => {
         const action = event.target.closest('[data-action]')?.dataset.action;
         if (action === 'search') search();
-        if (action === 'route') invalidateRoute(true);
+        const modeBtn = event.target.closest('[data-mode-btn]');
+        if (modeBtn && !readonly && !modeBtn.disabled) setTravelMode(modeBtn.dataset.modeBtn);
         if (action === 'save') save();
         if (action === 'new') {
             if (dirty && !window.confirm(S.confirmDiscard)) return;
@@ -710,7 +752,7 @@
 
     if (readonly) {
         root.classList.add('is-readonly');
-        root.querySelectorAll('[data-search-field] input, [data-search-field] button, #mrs-dtc-standard-seconds, #mrs-dtc-additional-minutes, [data-action="save"], [data-action="route"]')
+        root.querySelectorAll('[data-search-field] input, [data-search-field] button, #mrs-dtc-standard-seconds, #mrs-dtc-additional-minutes, [data-action="save"], [data-mode-btn]')
             .forEach(el => el.setAttribute('disabled', ''));
     }
 

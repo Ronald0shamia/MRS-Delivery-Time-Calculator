@@ -2,7 +2,7 @@
 /**
  * Plugin Name: MRS Delivery Time Calculator
  * Description: Berechnet und dokumentiert Zeitung-Zustelltouren mit OpenStreetMap, Nominatim und OSRM.
- * Version: 1.2.0
+ * Version: 1.3.0
  * Author: MRS Dev
  * Text Domain: mrs-delivery-time
  * Requires at least: 6.0
@@ -11,7 +11,7 @@
 
 defined('ABSPATH') || exit;
 
-define('MRS_DTC_VERSION', '1.2.0');
+define('MRS_DTC_VERSION', '1.3.0');
 define('MRS_DTC_FILE', __FILE__);
 define('MRS_DTC_DIR', plugin_dir_path(__FILE__));
 define('MRS_DTC_URL', plugin_dir_url(__FILE__));

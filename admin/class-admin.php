@@ -126,14 +126,15 @@ class MRS_DTC_Admin {
                 <div class="notice notice-success is-dismissible"><p>Die Berechnung wurde gelöscht.</p></div>
             <?php endif; ?>
             <table class="widefat striped">
-                <thead><tr><th>Datum</th><th>Adressen</th><th>Strecke</th><th>Hauszeit</th><th>Gesamtzeit</th><th>Aktionen</th></tr></thead>
+                <thead><tr><th>Datum</th><th>Adressen</th><th>Verkehrsmittel</th><th>Strecke</th><th>Hauszeit</th><th>Gesamtzeit</th><th>Aktionen</th></tr></thead>
                 <tbody>
                 <?php if (!$rows) : ?>
-                    <tr><td colspan="6">Noch keine Berechnungen gespeichert.</td></tr>
+                    <tr><td colspan="7">Noch keine Berechnungen gespeichert.</td></tr>
                 <?php else : foreach ($rows as $row) : $rid = (int) $row['id']; ?>
                     <tr>
                         <td><?php echo esc_html(mysql2date(get_option('date_format') . ' ' . get_option('time_format'), $row['created_at'])); ?></td>
                         <td><?php echo esc_html($row['address_count']); ?></td>
+                        <td><?php echo esc_html(['foot' => 'Zu Fuß', 'bike' => 'Fahrrad', 'car' => 'Auto'][MRS_DTC_Settings::normalize_mode($row['travel_mode'] ?? 'foot')]); ?></td>
                         <td><?php echo esc_html(number_format_i18n(((float) $row['route_distance_meters']) / 1000, 2)); ?> km</td>
                         <td><?php echo esc_html(MRS_DTC_Calculator::format_seconds((int) $row['house_seconds'])); ?></td>
                         <td><strong><?php echo esc_html(MRS_DTC_Calculator::format_seconds((int) $row['calculated_total_seconds'])); ?></strong></td>
@@ -208,15 +209,23 @@ class MRS_DTC_Admin {
                 <table class="form-table" role="presentation">
                     <tr><th><label for="mrs-s1">Standardzeit pro Haus</label></th>
                         <td><input id="mrs-s1" type="number" min="0" max="3600" name="<?php echo esc_attr($o); ?>[standard_seconds]" value="<?php echo esc_attr((string) $s['standard_seconds']); ?>"> Sekunden</td></tr>
-                    <tr><th><label for="mrs-s2">Standard-Gehgeschwindigkeit</label></th>
-                        <td><input id="mrs-s2" type="number" min="1" max="15" step="0.1" name="<?php echo esc_attr($o); ?>[walking_speed_kmh]" value="<?php echo esc_attr((string) $s['walking_speed_kmh']); ?>"> km/h
-                            <p class="description">Die Gehzeit wird aus der Strecke und dieser Geschwindigkeit berechnet.</p></td></tr>
+                    <tr><th><label for="mrs-s2">Gehgeschwindigkeit (zu Fuß)</label></th>
+                        <td><input id="mrs-s2" type="number" min="1" max="15" step="0.1" name="<?php echo esc_attr($o); ?>[walking_speed_kmh]" value="<?php echo esc_attr((string) $s['walking_speed_kmh']); ?>"> km/h</td></tr>
+                    <tr><th><label for="mrs-s2b">Durchschnittsgeschwindigkeit Fahrrad</label></th>
+                        <td><input id="mrs-s2b" type="number" min="3" max="60" step="0.5" name="<?php echo esc_attr($o); ?>[bike_speed_kmh]" value="<?php echo esc_attr((string) $s['bike_speed_kmh']); ?>"> km/h</td></tr>
+                    <tr><th><label for="mrs-s2c">Durchschnittsgeschwindigkeit Auto</label></th>
+                        <td><input id="mrs-s2c" type="number" min="5" max="150" step="1" name="<?php echo esc_attr($o); ?>[car_speed_kmh]" value="<?php echo esc_attr((string) $s['car_speed_kmh']); ?>"> km/h
+                            <p class="description">Die Geh-/Fahrzeit wird aus der Strecke und der Geschwindigkeit des gewählten Verkehrsmittels berechnet. Bei Fahrrad und Auto ist ein Durchschnitt inklusive Anfahren und Halten sinnvoll (Zustelltour, nicht Landstraße).</p></td></tr>
                     <tr><th><label for="mrs-s3">Nominatim URL</label></th>
                         <td><input id="mrs-s3" class="regular-text" type="url" name="<?php echo esc_attr($o); ?>[nominatim_url]" value="<?php echo esc_attr($s['nominatim_url']); ?>">
                             <p class="description">Der öffentliche Server erlaubt max. 1 Anfrage pro Sekunde. Das Plugin drosselt und cached automatisch.</p></td></tr>
-                    <tr><th><label for="mrs-s4">Routing API URL</label></th>
-                        <td><input id="mrs-s4" class="regular-text" type="url" name="<?php echo esc_attr($o); ?>[routing_url]" value="<?php echo esc_attr($s['routing_url']); ?>">
-                            <p class="description">OSRM-Basis-URL mit Profil (…/route/v1/foot), ohne Koordinaten.</p></td></tr>
+                    <tr><th><label for="mrs-s4">Routing API URL – zu Fuß</label></th>
+                        <td><input id="mrs-s4" class="large-text" type="url" name="<?php echo esc_attr($o); ?>[routing_url_foot]" value="<?php echo esc_attr($s['routing_url_foot']); ?>"></td></tr>
+                    <tr><th><label for="mrs-s4b">Routing API URL – Fahrrad</label></th>
+                        <td><input id="mrs-s4b" class="large-text" type="url" name="<?php echo esc_attr($o); ?>[routing_url_bike]" value="<?php echo esc_attr($s['routing_url_bike']); ?>"></td></tr>
+                    <tr><th><label for="mrs-s4c">Routing API URL – Auto</label></th>
+                        <td><input id="mrs-s4c" class="large-text" type="url" name="<?php echo esc_attr($o); ?>[routing_url_car]" value="<?php echo esc_attr($s['routing_url_car']); ?>">
+                            <p class="description">OSRM-Basis-URLs ohne Koordinaten. Der öffentliche FOSSGIS-Server nutzt pro Verkehrsmittel einen eigenen Pfad (routed-foot, routed-bike, routed-car).</p></td></tr>
                     <tr><th><label for="mrs-s5">Karten-Zoom</label></th>
                         <td><input id="mrs-s5" type="number" min="3" max="19" name="<?php echo esc_attr($o); ?>[map_zoom]" value="<?php echo esc_attr((string) $s['map_zoom']); ?>">
                             <p class="description">Zoomstufe, wenn nur eine Adresse auf der Karte ist.</p></td></tr>

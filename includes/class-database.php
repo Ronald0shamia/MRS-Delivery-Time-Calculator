@@ -23,6 +23,10 @@ class MRS_DTC_Database {
 
     public static function deactivate(): void {}
 
+    /**
+     * Hinweis: Die Spalten walking_speed_kmh / walking_seconds speichern seit 1.3.0 Geschwindigkeit und Zeit
+     * des gewählten Verkehrsmittels (travel_mode). Die Namen bleiben aus Kompatibilitätsgründen bestehen.
+     */
     public static function install(): void {
         global $wpdb;
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -45,6 +49,7 @@ class MRS_DTC_Database {
             house_seconds int(10) unsigned NOT NULL DEFAULT 0,
             route_distance_meters decimal(12,2) NOT NULL DEFAULT 0,
             route_duration_seconds int(10) unsigned NOT NULL DEFAULT 0,
+            travel_mode varchar(10) NOT NULL DEFAULT 'foot',
             walking_speed_kmh decimal(5,2) NOT NULL DEFAULT 5,
             walking_seconds int(10) unsigned NOT NULL DEFAULT 0,
             calculated_total_seconds int(10) unsigned NOT NULL DEFAULT 0,
@@ -181,7 +186,7 @@ class MRS_DTC_Database {
         global $wpdb;
         $ct = self::calculations_table();
         $where = $user_id ? $wpdb->prepare('WHERE user_id = %d', $user_id) : '';
-        $sql = "SELECT id, user_id, title, created_at, address_count, route_distance_meters, house_seconds, walking_seconds, calculated_total_seconds FROM {$ct} {$where} ORDER BY created_at DESC, id DESC LIMIT %d OFFSET %d";
+        $sql = "SELECT id, user_id, title, created_at, address_count, route_distance_meters, house_seconds, travel_mode, walking_seconds, calculated_total_seconds FROM {$ct} {$where} ORDER BY created_at DESC, id DESC LIMIT %d OFFSET %d";
         return (array) $wpdb->get_results($wpdb->prepare($sql, $limit, $offset), ARRAY_A);
     }
 

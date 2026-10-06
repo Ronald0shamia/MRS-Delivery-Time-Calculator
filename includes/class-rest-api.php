@@ -242,8 +242,9 @@ class MRS_DTC_REST_API {
             $points[] = [round((float) $point['lat'], 7), round((float) $point['lon'], 7)];
         }
 
-        $base = untrailingslashit((string) MRS_DTC_Settings::get('routing_url'));
-        $cache_key = 'mrs_dtc_route_' . md5(wp_json_encode($points) . $base);
+        $mode = MRS_DTC_Settings::normalize_mode($request->get_param('mode'));
+        $base = MRS_DTC_Settings::routing_url($mode);
+        $cache_key = 'mrs_dtc_route_' . md5(wp_json_encode($points) . $base . $mode);
         $cached = get_transient($cache_key);
         if (is_array($cached)) {
             return rest_ensure_response($cached);
@@ -288,6 +289,7 @@ class MRS_DTC_REST_API {
         }
 
         $response = [
+            'mode' => $mode,
             'distance_meters' => round($distance, 1),
             'duration_seconds' => (int) round($duration),
             'geometry' => ['type' => 'LineString', 'coordinates' => $coords],
@@ -338,7 +340,8 @@ class MRS_DTC_REST_API {
 
         $standard = self::clamp_int($body['standard_seconds'] ?? MRS_DTC_Settings::get('standard_seconds'), 0, 3600);
         $additional = self::clamp_int($body['additional_minutes'] ?? 0, 0, 1440);
-        $speed = max(1.0, min(15.0, (float) ($body['walking_speed_kmh'] ?? MRS_DTC_Settings::get('walking_speed_kmh'))));
+        $mode = MRS_DTC_Settings::normalize_mode($body['travel_mode'] ?? 'foot');
+        $speed = max(1.0, min(150.0, (float) ($body['travel_speed_kmh'] ?? MRS_DTC_Settings::speed($mode))));
         $distance = max(0.0, min(5000000.0, (float) ($body['route_distance_meters'] ?? 0)));
         $route_duration = self::clamp_int($body['route_duration_seconds'] ?? 0, 0, 10000000);
 
@@ -373,8 +376,9 @@ class MRS_DTC_REST_API {
                 'house_seconds' => $calc['house_seconds'],
                 'route_distance_meters' => $distance,
                 'route_duration_seconds' => $route_duration,
-                'walking_speed_kmh' => $speed,
-                'walking_seconds' => $calc['walking_seconds'],
+                'travel_mode' => $mode,
+                'walking_speed_kmh' => $speed, // Geschwindigkeit des gewählten Verkehrsmittels
+                'walking_seconds' => $calc['travel_seconds'], // Weg-/Fahrzeit des gewählten Verkehrsmittels
                 'calculated_total_seconds' => $calc['calculated_total_seconds'],
                 'route_json' => $route ? wp_json_encode($route) : null,
             ],
@@ -401,7 +405,8 @@ class MRS_DTC_REST_API {
             'address_count' => (int) $row['address_count'],
             'route_distance_meters' => (float) $row['route_distance_meters'],
             'house_seconds' => (int) $row['house_seconds'],
-            'walking_seconds' => (int) $row['walking_seconds'],
+            'travel_mode' => MRS_DTC_Settings::normalize_mode($row['travel_mode'] ?? 'foot'),
+            'travel_seconds' => (int) $row['walking_seconds'],
             'calculated_total_seconds' => (int) $row['calculated_total_seconds'],
         ];
     }
@@ -425,7 +430,7 @@ class MRS_DTC_REST_API {
             'standard_seconds' => (int) $calc['standard_seconds'],
             'additional_minutes' => (int) $calc['additional_minutes'],
             'route_duration_seconds' => (int) $calc['route_duration_seconds'],
-            'walking_speed_kmh' => (float) $calc['walking_speed_kmh'],
+            'travel_speed_kmh' => (float) $calc['walking_speed_kmh'],
             'route' => is_array($route) ? $route : null,
             'addresses' => $addresses,
         ]);

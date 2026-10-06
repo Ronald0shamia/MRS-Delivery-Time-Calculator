@@ -3,7 +3,7 @@ Contributors: mrs-dev
 Tags: delivery, route, openstreetmap, leaflet, nominatim, osrm
 Requires at least: 6.0
 Requires PHP: 8.1
-Stable tag: 1.2.0
+Stable tag: 1.3.0
 License: GPLv2 or later
 
 == Description ==
@@ -27,6 +27,11 @@ Die externen Dienste können IP-Adressen und Anfrageinformationen nach ihren jew
 4. Unter Delivery Time > Einstellungen die Standardwerte prüfen.
 
 == Changelog ==
+= 1.3.0 =
+* Route wahlweise zu Fuß, mit dem Fahrrad oder mit dem Auto (drei Icon-Buttons).
+* Eigene Durchschnittsgeschwindigkeit und Routing-URL pro Verkehrsmittel in den Einstellungen.
+* Verkehrsmittel wird mit jeder Berechnung gespeichert und im Dashboard angezeigt.
+
 = 1.2.0 =
 * Gespeicherte Berechnungen werden nur noch im Dashboard angezeigt (nicht mehr im Frontend).
 * Adressen lassen sich per Drag & Drop (Maus und Touch) umsortieren; die Pfeil-Buttons bleiben.
