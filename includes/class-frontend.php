@@ -18,12 +18,19 @@ class MRS_DTC_Frontend {
         wp_enqueue_style('mrs-dtc-leaflet', MRS_DTC_URL . 'assets/vendor/leaflet/leaflet.css', [], '1.9.4');
         wp_enqueue_script('mrs-dtc-leaflet', MRS_DTC_URL . 'assets/vendor/leaflet/leaflet.js', [], '1.9.4', true);
         wp_enqueue_style('mrs-dtc-frontend', MRS_DTC_URL . 'assets/css/frontend.css', ['mrs-dtc-leaflet'], MRS_DTC_VERSION);
-        wp_enqueue_script('mrs-dtc-frontend', MRS_DTC_URL . 'assets/js/frontend.js', ['mrs-dtc-leaflet'], MRS_DTC_VERSION, true);
+        // PDF-Modul klein; pdf.js und pdf-lib werden erst bei Bedarf (Import/Export) nachgeladen.
+        wp_enqueue_script('mrs-dtc-pdf', MRS_DTC_URL . 'assets/js/pdf-io.js', [], MRS_DTC_VERSION, true);
+        wp_enqueue_script('mrs-dtc-frontend', MRS_DTC_URL . 'assets/js/frontend.js', ['mrs-dtc-leaflet', 'mrs-dtc-pdf'], MRS_DTC_VERSION, true);
 
         $s = MRS_DTC_Settings::all();
         wp_localize_script('mrs-dtc-frontend', 'MRS_DTC', [
             'restUrl' => esc_url_raw(rest_url(MRS_DTC_REST_API::NS . '/')),
             'nonce' => wp_create_nonce('wp_rest'),
+            'libs' => [
+                'pdfjs' => MRS_DTC_URL . 'assets/vendor/pdfjs/pdf.min.js',
+                'pdfjsWorker' => MRS_DTC_URL . 'assets/vendor/pdfjs/pdf.worker.min.js',
+                'pdflib' => MRS_DTC_URL . 'assets/vendor/pdf-lib/pdf-lib.min.js',
+            ],
             'settings' => [
                 'standard_seconds' => (int) $s['standard_seconds'],
                 'speeds' => [
@@ -59,7 +66,55 @@ class MRS_DTC_Frontend {
                 'up' => 'Nach oben',
                 'down' => 'Nach unten',
                 'remove' => 'Adresse löschen',
+                'quantity' => 'Menge',
                 'drag' => 'Zum Umsortieren ziehen',
+                'confirmReplace' => 'Die aktuelle Adressliste wird ersetzt. Fortfahren?',
+                'pdfReading' => 'PDF wird gelesen …',
+                'pdfReadError' => 'Die PDF-Datei konnte nicht gelesen werden.',
+                'pdfUnknown' => 'Dieses PDF wurde nicht erkannt. Unterstützt werden Zustellbuch-PDFs und PDFs aus diesem Rechner.',
+                'pdfTooLarge' => 'Die PDF-Datei ist zu groß (maximal 20 MB).',
+                'pdfRestored' => 'Berechnung aus PDF wiederhergestellt. Zum Speichern bitte „Berechnung speichern“ klicken.',
+                'pdfCreating' => 'PDF wird erstellt …',
+                'pdfCreated' => 'PDF erstellt.',
+                'pdfNoMap' => 'PDF erstellt, aber ohne Kartenbild (Kartendaten nicht erreichbar).',
+                'pdfPartialMap' => 'PDF erstellt, Teile der Karte fehlen (einzelne Kartenkacheln nicht erreichbar).',
+                'pdfFailed' => 'Das PDF konnte nicht erstellt werden.',
+                'importTitle' => 'Zustellbuch erkannt',
+                'importNoRows' => 'Im PDF wurden keine Adressen gefunden.',
+                'importStart' => 'Import starten',
+                'importCancel' => 'Abbrechen',
+                'importClose' => 'Schließen',
+                'importStop' => 'Stoppen',
+                'importTooMany' => 'Es werden nur die ersten 300 Adressen importiert.',
+                'importAborted' => 'Import abgebrochen.',
+                'importServerError' => 'Der Import wurde wegen eines Serverproblems beendet.',
+                'approxSuffix' => '(ungefähre Position)',
+                'pdf' => [
+                    'title' => 'Zustellzeit-Berechnung',
+                    'created' => 'Erstellt am',
+                    'calcId' => 'Berechnung Nr.',
+                    'houses' => 'Häuser',
+                    'distance' => 'Strecke',
+                    'mode' => 'Verkehrsmittel',
+                    'modes' => ['foot' => 'Zu Fuß', 'bike' => 'Fahrrad', 'car' => 'Auto'],
+                    'houseTime' => 'Hauszustellung',
+                    'travel' => ['foot' => 'Gehzeit', 'bike' => 'Fahrradzeit', 'car' => 'Fahrzeit'],
+                    'additional' => 'Zusatzzeit',
+                    'total' => 'Berechnete Zustellzeit',
+                    'note' => 'Alle Zeiten sind berechnet und nicht mit der tatsächlichen Arbeitszeit gleichzusetzen. Routing-Dauer laut Routing-Dienst (nur zur Information):',
+                    'routingDuration' => '',
+                    'mapCaption' => 'Kartenübersicht mit Route und nummerierten Adressen · © OpenStreetMap-Mitwirkende',
+                    'mapMissing' => 'Kartenübersicht nicht verfügbar.',
+                    'addresses' => 'Adressen',
+                    'nr' => 'Nr.',
+                    'address' => 'Adresse',
+                    'quantity' => 'Menge',
+                    'seconds' => 'Sekunden',
+                    'sum' => 'Summe Hauszeit (Sekunden)',
+                    'footer' => 'MRS Delivery Time Calculator · Dieses PDF kann im Rechner wieder eingelesen werden',
+                    'page' => 'Seite',
+                    'attribution' => '© OpenStreetMap-Mitwirkende',
+                ],
                 'travel_foot' => 'Gehzeit',
                 'travel_bike' => 'Fahrradzeit',
                 'travel_car' => 'Fahrzeit',
@@ -124,6 +179,14 @@ class MRS_DTC_Frontend {
                             <span>Sekunden</span>
                         </div>
                     </div>
+
+                    <div class="mrs-dtc-field mrs-dtc-import" data-import-field>
+                        <label>PDF importieren</label>
+                        <button type="button" class="mrs-dtc-button" data-action="import-pdf">PDF auswählen …</button>
+                        <input type="file" accept="application/pdf,.pdf" data-import-file hidden>
+                        <p class="mrs-dtc-hint">Zustellbuch (Adressen) oder ein PDF aus diesem Rechner. Das PDF wird nur im Browser gelesen und nicht hochgeladen; Namen werden nicht ausgelesen.</p>
+                        <div class="mrs-dtc-import-panel" data-import-panel hidden></div>
+                    </div>
                 </section>
 
                 <section class="mrs-dtc-map-panel">
@@ -180,6 +243,9 @@ class MRS_DTC_Frontend {
 
             <div class="mrs-dtc-actions mrs-dtc-save-row">
                 <button type="button" class="mrs-dtc-button mrs-dtc-primary mrs-dtc-save" data-action="save" disabled>Berechnung speichern</button>
+                <?php if ($mode === 'new') : ?>
+                    <label class="mrs-dtc-pdfopt"><input type="checkbox" data-pdf-on-save checked> Beim Speichern ein PDF (Adressen und Kartenübersicht) erstellen</label>
+                <?php endif; ?>
             </div>
 
             <div class="mrs-dtc-message" data-message role="status" aria-live="polite"></div>

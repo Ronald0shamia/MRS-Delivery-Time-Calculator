@@ -140,28 +140,55 @@ class MRS_DTC_REST_API {
     /* ---------------- Geocoding ---------------- */
 
     public static function geocode(WP_REST_Request $request) {
-        $query = trim((string) preg_replace('/\s+/', ' ', sanitize_text_field((string) $request->get_param('query'))));
-        $len = mb_strlen($query);
-        if ($len < 3 || $len > 200) {
-            return new WP_Error('invalid_query', 'Bitte geben Sie mindestens 3 Zeichen ein.', ['status' => 400]);
+        $clean = static fn($v) => trim((string) preg_replace('/\s+/', ' ', sanitize_text_field((string) $v)));
+
+        // Zwei Arten der Suche: freier Text (Adressfeld) oder strukturiert (PDF-Import: Straße + Ort).
+        $street = $clean($request->get_param('street'));
+        $city = $clean($request->get_param('city'));
+        $query = $clean($request->get_param('query'));
+
+        if ($street !== '') {
+            $len = mb_strlen($street);
+            if ($len < 2 || $len > 150 || mb_strlen($city) > 100) {
+                return new WP_Error('invalid_query', 'Ungültige Adresse.', ['status' => 400]);
+            }
+        } else {
+            $len = mb_strlen($query);
+            if ($len < 3 || $len > 200) {
+                return new WP_Error('invalid_query', 'Bitte geben Sie mindestens 3 Zeichen ein.', ['status' => 400]);
+            }
+        }
+
+        // Optional: Suchergebnisse in der Nähe dieses Punktes bevorzugen (Laufenburg/Baden vs. Laufenburg/AG).
+        $bias = null;
+        $lat = $request->get_param('lat');
+        $lon = $request->get_param('lon');
+        if (self::valid_point($lat, $lon)) {
+            $bias = [round((float) $lat, 1), round((float) $lon, 1)];
         }
 
         $codes = (string) MRS_DTC_Settings::get('country_codes');
-        $cache_key = 'mrs_dtc_geo_' . md5(mb_strtolower($query) . '|' . $codes);
+        $cache_key = 'mrs_dtc_geo_' . md5(strtolower($street . '|' . $city . '|' . $query) . '|' . $codes . '|' . wp_json_encode($bias));
         $cached = get_transient($cache_key);
         if (is_array($cached)) {
             return rest_ensure_response(['results' => $cached]);
         }
 
-        $args = [
-            'q' => $query,
-            'format' => 'jsonv2',
-            'addressdetails' => 1,
-            'limit' => 8,
-            'accept-language' => 'de',
-        ];
+        $args = ['format' => 'jsonv2', 'addressdetails' => 1, 'limit' => 8, 'accept-language' => 'de'];
+        if ($street !== '') {
+            $args['street'] = $street; // Nominatim: "<Hausnummer> <Straße>"
+            if ($city !== '') {
+                $args['city'] = $city;
+            }
+        } else {
+            $args['q'] = $query;
+        }
         if ($codes !== '') {
             $args['countrycodes'] = $codes;
+        }
+        if ($bias) {
+            // viewbox = links, oben, rechts, unten (bounded=0: nur Bevorzugung, kein harter Filter)
+            $args['viewbox'] = ($bias[1] - 0.25) . ',' . ($bias[0] + 0.2) . ',' . ($bias[1] + 0.25) . ',' . ($bias[0] - 0.2);
         }
 
         self::throttle('mrs_dtc_nominatim_last', 1.1);
@@ -335,6 +362,7 @@ class MRS_DTC_REST_API {
                 'latitude'     => round((float) $lat, 7),
                 'longitude'    => round((float) $lon, 7),
                 'seconds'      => self::clamp_int($row['seconds'] ?? 0, 0, 3600),
+                'quantity'     => max(1, self::clamp_int($row['quantity'] ?? 1, 1, 999)),
             ];
         }
 
@@ -423,6 +451,7 @@ class MRS_DTC_REST_API {
                 'latitude' => (float) $a['latitude'],
                 'longitude' => (float) $a['longitude'],
                 'seconds' => (int) $a['seconds'],
+                'quantity' => max(1, (int) ($a['quantity'] ?? 1)),
                 'address_order' => (int) $a['address_order'],
             ];
         }

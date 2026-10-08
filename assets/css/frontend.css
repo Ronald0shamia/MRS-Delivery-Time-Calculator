@@ -140,3 +140,18 @@
 .mrs-dtc-mode:focus-visible { outline:3px solid #2271b1; outline-offset:2px; }
 .mrs-dtc-mode:disabled { opacity:.55; cursor:not-allowed; }
 @media (prefers-reduced-motion: reduce) { .mrs-dtc-mode { transition:none; } }
+
+/* ---- PDF-Import / Menge (1.4.0) ---- */
+.mrs-dtc-import { margin-top:16px; }
+.mrs-dtc-hint { margin:6px 0 0; font-size:12px; color:#646970; }
+.mrs-dtc-import-panel { margin-top:12px; padding:12px 14px; border:1px solid #c3c4c7; border-left:4px solid #2271b1; border-radius:6px; background:#f6fbff; font-size:14px; }
+.mrs-dtc-import-panel[hidden] { display:none; }
+.mrs-dtc-import-panel p { margin:6px 0; }
+.mrs-dtc-import-panel ul { margin:4px 0 8px 18px; padding:0; max-height:160px; overflow:auto; font-size:13px; }
+.mrs-dtc-import-panel progress { width:100%; height:14px; margin-top:8px; }
+.mrs-dtc-check { display:flex; align-items:flex-start; gap:8px; margin:6px 0; cursor:pointer; }
+.mrs-dtc-check input { margin-top:3px; }
+.mrs-dtc-import-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.mrs-dtc-qty { display:inline-block; margin-left:4px; padding:0 6px; border-radius:10px; background:#2271b1; color:#fff; font-size:12px; font-weight:600; line-height:18px; vertical-align:1px; }
+.mrs-dtc-pdfopt { display:flex; align-items:center; gap:8px; margin-top:12px; font-size:14px; cursor:pointer; }
+.mrs-dtc.is-importing .mrs-dtc-list-panel, .mrs-dtc.is-importing .mrs-dtc-save-row, .mrs-dtc.is-importing [data-search-field] { opacity:.55; pointer-events:none; }

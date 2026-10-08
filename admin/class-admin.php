@@ -126,13 +126,14 @@ class MRS_DTC_Admin {
                 <div class="notice notice-success is-dismissible"><p>Die Berechnung wurde gelöscht.</p></div>
             <?php endif; ?>
             <table class="widefat striped">
-                <thead><tr><th>Datum</th><th>Adressen</th><th>Verkehrsmittel</th><th>Strecke</th><th>Hauszeit</th><th>Gesamtzeit</th><th>Aktionen</th></tr></thead>
+                <thead><tr><th>Datum</th><th>Titel</th><th>Adressen</th><th>Verkehrsmittel</th><th>Strecke</th><th>Hauszeit</th><th>Gesamtzeit</th><th>Aktionen</th></tr></thead>
                 <tbody>
                 <?php if (!$rows) : ?>
-                    <tr><td colspan="7">Noch keine Berechnungen gespeichert.</td></tr>
+                    <tr><td colspan="8">Noch keine Berechnungen gespeichert.</td></tr>
                 <?php else : foreach ($rows as $row) : $rid = (int) $row['id']; ?>
                     <tr>
                         <td><?php echo esc_html(mysql2date(get_option('date_format') . ' ' . get_option('time_format'), $row['created_at'])); ?></td>
+                        <td><?php echo esc_html($row['title'] !== '' ? $row['title'] : '–'); ?></td>
                         <td><?php echo esc_html($row['address_count']); ?></td>
                         <td><?php echo esc_html(['foot' => 'Zu Fuß', 'bike' => 'Fahrrad', 'car' => 'Auto'][MRS_DTC_Settings::normalize_mode($row['travel_mode'] ?? 'foot')]); ?></td>
                         <td><?php echo esc_html(number_format_i18n(((float) $row['route_distance_meters']) / 1000, 2)); ?> km</td>

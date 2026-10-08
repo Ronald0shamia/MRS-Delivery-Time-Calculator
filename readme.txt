@@ -3,7 +3,7 @@ Contributors: mrs-dev
 Tags: delivery, route, openstreetmap, leaflet, nominatim, osrm
 Requires at least: 6.0
 Requires PHP: 8.1
-Stable tag: 1.3.0
+Stable tag: 1.4.0
 License: GPLv2 or later
 
 == Description ==
@@ -27,6 +27,12 @@ Die externen Dienste können IP-Adressen und Anfrageinformationen nach ihren jew
 4. Unter Delivery Time > Einstellungen die Standardwerte prüfen.
 
 == Changelog ==
+= 1.4.0 =
+* PDF-Import: Zustellbuch-PDF hochladen, Adressen werden gelesen und gesucht; gleiche Adressen werden zusammengefasst und die Zeit mit der Menge multipliziert.
+* Beim Speichern im Frontend wird ein PDF (Zusammenfassung, Kartenübersicht, Adressliste) erstellt und heruntergeladen. Im Dashboard und auf dem Server werden keine PDFs gespeichert.
+* Eigene PDFs lassen sich wieder einlesen (Berechnungsdaten sind im PDF enthalten).
+* Menge pro Adresse wird gespeichert; Titel (z. B. Bezirk) wird im Dashboard angezeigt.
+
 = 1.3.0 =
 * Route wahlweise zu Fuß, mit dem Fahrrad oder mit dem Auto (drei Icon-Buttons).
 * Eigene Durchschnittsgeschwindigkeit und Routing-URL pro Verkehrsmittel in den Einstellungen.

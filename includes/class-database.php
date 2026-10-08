@@ -70,6 +70,7 @@ class MRS_DTC_Database {
             latitude decimal(10,7) NOT NULL,
             longitude decimal(10,7) NOT NULL,
             seconds int(10) unsigned NOT NULL DEFAULT 8,
+            quantity int(10) unsigned NOT NULL DEFAULT 1,
             address_order int(10) unsigned NOT NULL DEFAULT 0,
             PRIMARY KEY  (id),
             KEY calculation_id (calculation_id),
@@ -108,8 +109,9 @@ class MRS_DTC_Database {
                 'latitude'       => $address['latitude'],
                 'longitude'      => $address['longitude'],
                 'seconds'        => $address['seconds'],
+                'quantity'       => $address['quantity'],
                 'address_order'  => $index,
-            ], ['%d', '%s', '%s', '%s', '%s', '%f', '%f', '%d', '%d']);
+            ], ['%d', '%s', '%s', '%s', '%s', '%f', '%f', '%d', '%d', '%d']);
             if ($ok === false) {
                 return false;
             }

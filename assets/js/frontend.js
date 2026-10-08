@@ -144,13 +144,17 @@
 
     /* ---------- Berechnung ---------- */
 
-    function recalculate() {
+    function compute() {
         const house = state.addresses.reduce((sum, a) => sum + Math.max(0, Number(a.seconds) || 0), 0);
         const distance = state.route ? Number(state.route.distance_meters || 0) : 0;
         // Gleiche Formel wie auf dem Server (MRS_DTC_Calculator::calculate)
         const travel = state.travelSpeed > 0 ? Math.round(distance / 1000 / state.travelSpeed * 3600) : 0;
         const additional = Math.round(Math.max(0, Number(state.additionalMinutes) || 0) * 60);
-        const total = house + travel + additional;
+        return {house, distance, travel, additional, total: house + travel + additional};
+    }
+
+    function recalculate() {
+        const {house, distance, travel, additional, total} = compute();
 
         $('[data-summary-label="travel"]').textContent = S['travel_' + state.travelMode] || '';
 
@@ -196,7 +200,7 @@
                     ${handle}
                     <div class="mrs-dtc-address-number">${i + 1}</div>
                     <div class="mrs-dtc-address-main">
-                        <strong>${escapeHtml(title)}</strong>
+                        <strong>${escapeHtml(title)}${(a.quantity || 1) > 1 ? ` <span class="mrs-dtc-qty" title="${escapeHtml(S.quantity)}">×${Number(a.quantity)}</span>` : ''}</strong>
                         <small>${escapeHtml(sub)}</small>
                     </div>
                     <div class="mrs-dtc-seconds">
@@ -224,7 +228,7 @@
     }
 
     function setTravelMode(mode) {
-        if (!MODES.includes(mode)) return;
+        if (!MODES.includes(mode) || importing()) return;
         if (mode !== state.travelMode) {
             state.travelMode = mode;
             state.travelSpeed = speedFor(mode);
@@ -346,7 +350,7 @@
     /* ---------- Adresssuche ---------- */
 
     async function search() {
-        if (searchBusy || readonly) return;
+        if (searchBusy || readonly || importing()) return;
         const input = $('#mrs-dtc-address-search');
         const query = input.value.trim();
         if (query.length < 3) {
@@ -404,7 +408,8 @@
             full_address: result.display_name || '',
             latitude: lat,
             longitude: lon,
-            seconds: state.standardSeconds
+            seconds: state.standardSeconds,
+            quantity: 1
         });
 
         $('[data-results]').innerHTML = '';
@@ -455,7 +460,7 @@
     }
 
     async function save() {
-        if (readonly || !state.addresses.length) return;
+        if (readonly || importing() || !state.addresses.length) return;
         const button = $('[data-action="save"]');
         button.disabled = true;
 
@@ -471,7 +476,22 @@
 
             state.calculationId = data.id;
             dirty = false;
-            setMessage(`${updating ? S.updated : S.saved} (#${data.id})`, 'success');
+            const savedText = `${updating ? S.updated : S.saved} (#${data.id})`;
+            setMessage(savedText, 'success');
+
+            // PDF nur beim Speichern im Frontend; im Dashboard (edit/view) wird kein PDF erstellt.
+            const pdfBox = $('[data-pdf-on-save]');
+            if (mode === 'new' && pdfBox && pdfBox.checked) {
+                setMessage(`${savedText} ${S.pdfCreating}`);
+                try {
+                    const result = await createPdf(data.id);
+                    const note = result.tilesFailed === -1 ? S.pdfNoMap : (result.tilesFailed > 0 ? S.pdfPartialMap : S.pdfCreated);
+                    setMessage(`${savedText} ${note}`, result.tilesFailed === 0 ? 'success' : '');
+                } catch (pdfError) {
+                    console.error(pdfError);
+                    setMessage(`${savedText} ${S.pdfFailed}`, 'error');
+                }
+            }
         } catch (error) {
             setMessage(error.message || S.saveError, 'error');
         } finally {
@@ -491,7 +511,8 @@
             full_address: a.full_address,
             latitude: a.latitude,
             longitude: a.longitude,
-            seconds: a.seconds
+            seconds: a.seconds,
+            quantity: a.quantity || 1
         }));
         state.standardSeconds = c.standard_seconds;
         state.additionalMinutes = c.additional_minutes;
@@ -644,7 +665,7 @@
 
     $('[data-address-list]').addEventListener('pointerdown', event => {
         const handle = event.target.closest('[data-drag]');
-        if (!handle || readonly || dragState.active) return;
+        if (!handle || readonly || importing() || dragState.active) return;
         if (event.pointerType === 'mouse' && event.button !== 0) return;
 
         const list = event.currentTarget;
@@ -677,6 +698,334 @@
         window.addEventListener('pointercancel', onDragCancel);
         document.addEventListener('keydown', onDragKey);
         dragState.raf = requestAnimationFrame(dragAutoScroll);
+    });
+
+
+    /* ---------- PDF: Import (Zustellbuch / eigenes PDF) und Export ---------- */
+
+    const PDF = () => window.MRS_DTC_PDF;
+    const libs = MRS_DTC.libs || {};
+    const importState = {phase: 'idle', parsed: null, options: {skipU: true, includeLimited: true}, agg: null, done: 0, total: 0, abort: false, result: null};
+    function importing() { return importState.phase === 'running'; }
+    const newKey = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
+    // Während des Imports ist der Rest der Oberfläche gesperrt (inert), damit nichts dazwischenfunkt.
+    function setImportLock(on) {
+        root.classList.toggle('is-importing', on);
+        const targets = [
+            $('[data-search-field]'), $('.mrs-dtc-list-panel'), $('.mrs-dtc-save-row'), $('.mrs-dtc-load'),
+            $('#mrs-dtc-standard-seconds').closest('.mrs-dtc-field')
+        ];
+        targets.forEach(el => { if (el) { if (on) el.setAttribute('inert', ''); else el.removeAttribute('inert'); } });
+    }
+
+    function etaText(count) {
+        const seconds = Math.ceil(count * 1.3);
+        return seconds < 90 ? `ca. ${seconds} Sekunden` : `ca. ${Math.ceil(seconds / 60)} Minuten`;
+    }
+
+    const addressText = (item) => `${PDF().expandStreet(item.street)} ${item.house}`.trim();
+
+    function renderImportPanel(focusSelector) {
+        const el = $('[data-import-panel]');
+        if (importState.phase === 'idle') {
+            el.hidden = true;
+            el.innerHTML = '';
+            return;
+        }
+        el.hidden = false;
+
+        if (importState.phase === 'choose') {
+            const st = importState.agg.stats;
+            const o = importState.options;
+            const skipped = [];
+            if (st.bracket) skipped.push(`${st.bracket} Zeile(n) mit nicht belieferter Menge [n]`);
+            if (st.skipU) skipped.push(`${st.skipU} Zeile(n) mit Status U`);
+            if (st.limitedSkipped) skipped.push(`${st.limitedSkipped} Zeile(n) mit eingeschränkten Liefertagen`);
+            el.innerHTML = `
+                <strong>${escapeHtml(S.importTitle)}</strong>
+                <p>${escapeHtml(importState.parsed.title || '')}</p>
+                <p>${st.rows} Zeilen → <strong>${st.unique} Adressen</strong> (Menge gesamt ${st.totalQuantity}).${skipped.length ? `<br><small>Übersprungen: ${escapeHtml(skipped.join(', '))}.</small>` : ''}${st.unique > PDF().MAX_ADDRESSES ? `<br><small>${escapeHtml(S.importTooMany)}</small>` : ''}</p>
+                <label class="mrs-dtc-check"><input type="checkbox" data-import-opt="skipU" ${o.skipU ? 'checked' : ''}> Status „U“ (Unterbrechung) überspringen</label>
+                <label class="mrs-dtc-check"><input type="checkbox" data-import-opt="includeLimited" ${o.includeLimited ? 'checked' : ''}> Abos mit eingeschränkten Liefertagen (FR/SA, SAABO, FS/MI) mitzählen</label>
+                <p><small>Zeit pro Adresse = Standardzeit (${state.standardSeconds} Sek.) × Menge. Die Adressen werden einzeln gesucht: ${etaText(Math.min(st.unique, PDF().MAX_ADDRESSES))}.</small></p>
+                <div class="mrs-dtc-import-actions">
+                    <button type="button" class="mrs-dtc-button mrs-dtc-primary" data-import-action="start" ${st.unique ? '' : 'disabled'}>${escapeHtml(S.importStart)}</button>
+                    <button type="button" class="mrs-dtc-button" data-import-action="close">${escapeHtml(S.importCancel)}</button>
+                </div>`;
+        } else if (importState.phase === 'running') {
+            el.innerHTML = `
+                <strong>${escapeHtml(S.searching)}</strong>
+                <progress max="${importState.total}" value="${importState.done}" data-import-progress></progress>
+                <p data-import-count>${importState.done} / ${importState.total}</p>
+                <button type="button" class="mrs-dtc-button" data-import-action="stop">${escapeHtml(S.importStop)}</button>`;
+        } else if (importState.phase === 'done') {
+            const r = importState.result;
+            const list = (items) => `<ul>${items.slice(0, 25).map(t => `<li>${escapeHtml(t)}</li>`).join('')}${items.length > 25 ? `<li>… +${items.length - 25}</li>` : ''}</ul>`;
+            el.innerHTML = `
+                <strong>${r.aborted ? escapeHtml(S.importAborted) : 'Import abgeschlossen'}</strong>
+                <p><strong>${r.added}</strong> von ${r.total} Adressen übernommen.${r.fatal ? `<br><small>${escapeHtml(r.fatal)}</small>` : ''}${r.truncated ? `<br><small>${escapeHtml(S.importTooMany)}</small>` : ''}</p>
+                ${r.approx.length ? `<p><small>Nur die Straße wurde gefunden (Position ungefähr):</small></p>${list(r.approx)}` : ''}
+                ${r.notFound.length ? `<p><small>Nicht gefunden – bitte manuell suchen:</small></p>${list(r.notFound)}` : ''}
+                <div class="mrs-dtc-import-actions"><button type="button" class="mrs-dtc-button" data-import-action="close">${escapeHtml(S.importClose)}</button></div>`;
+        }
+
+        if (focusSelector) {
+            const f = el.querySelector(focusSelector);
+            if (f) f.focus();
+        }
+    }
+
+    function updateImportProgress() {
+        const bar = $('[data-import-progress]');
+        if (bar) bar.value = importState.done;
+        const count = $('[data-import-count]');
+        if (count) count.textContent = `${importState.done} / ${importState.total}`;
+    }
+
+    function startBookPreview(parsed) {
+        importState.phase = 'choose';
+        importState.parsed = parsed;
+        importState.options = {skipU: true, includeLimited: true};
+        importState.agg = PDF().aggregateBook(parsed, importState.options);
+        renderImportPanel();
+    }
+
+    // Eigenes PDF: Daten komplett wiederherstellen (inkl. Route und Verkehrsmittel).
+    function restoreFromReport(r) {
+        if (state.addresses.length && !window.confirm(S.confirmReplace)) return;
+
+        clearTimeout(routeTimer);
+        routeSeq++;
+        if (routeAbort) routeAbort.abort();
+
+        state.addresses = r.addresses.map(a => Object.assign({address_key: newKey()}, a));
+        state.travelMode = r.travel_mode;
+        state.travelSpeed = r.travel_speed_kmh;
+        state.standardSeconds = r.standard_seconds;
+        state.additionalMinutes = r.additional_minutes;
+        state.title = r.title || '';
+        state.route = r.route ? {
+            distance_meters: r.distance_meters,
+            duration_seconds: r.routing_duration_seconds,
+            geometry: {type: 'LineString', coordinates: r.route.coordinates}
+        } : null;
+        routePending = false;
+        routeRunning = false;
+
+        $('#mrs-dtc-standard-seconds').value = state.standardSeconds;
+        $('#mrs-dtc-additional-minutes').value = state.additionalMinutes;
+        renderAddresses();
+        redrawMap();
+        drawRoute();
+        fitMap();
+        markDirty();
+        setMessage(S.pdfRestored, 'success');
+    }
+
+    async function handleImportFile(file) {
+        if (!file || importing()) return;
+        if (file.size > 20 * 1024 * 1024) {
+            setMessage(S.pdfTooLarge, 'error');
+            return;
+        }
+        setMessage(S.pdfReading);
+        try {
+            const result = await PDF().readFile(file, libs);
+            setMessage('');
+            if (result.kind === 'restore') restoreFromReport(result.report);
+            else if (result.kind === 'book') startBookPreview(result.parsed);
+            else setMessage(S.pdfUnknown, 'error');
+        } catch (error) {
+            console.error(error);
+            setMessage(S.pdfReadError, 'error');
+        }
+    }
+
+    // Beste Übereinstimmung: gleiche Straße + gleiche Hausnummer. Sonst nur die Straße (ungefähr).
+    function pickResult(results, item) {
+        const P = PDF();
+        const wantStreet = P.normStreet(item.street);
+        const wantHouse = P.normHouse(item.house);
+        let approx = null;
+        for (const r of results) {
+            if (P.normStreet(r.street) !== wantStreet) continue;
+            const house = P.normHouse(r.house_number);
+            if (house === wantHouse) return {exact: true, result: r};
+            if (!approx && house === '') approx = {exact: false, result: r};
+        }
+        return approx;
+    }
+
+    async function geocodeImportItem(item, anchor) {
+        const street = PDF().expandStreet(item.street);
+        const bias = anchor ? {lat: anchor[0], lon: anchor[1]} : {};
+        const attempts = [
+            {street: `${item.house} ${street}`, city: item.city}, // strukturierte Suche
+            {query: `${street} ${item.house}, ${item.city}`}      // Rückfall: freie Suche
+        ];
+        let best = null;
+        for (const attempt of attempts) {
+            const data = await api('geocode', {method: 'POST', body: Object.assign({}, attempt, bias)});
+            const hit = pickResult(data.results || [], item);
+            if (hit && hit.exact) return hit;
+            if (hit && !best) best = hit;
+        }
+        return best;
+    }
+
+    function addressFromHit(item, hit, standardSeconds) {
+        const r = hit.result;
+        const quantity = item.quantity;
+        const base = {
+            address_key: newKey(),
+            latitude: Number(r.lat),
+            longitude: Number(r.lon),
+            seconds: Math.min(3600, standardSeconds * quantity), // Zeit = Standardzeit × Menge
+            quantity
+        };
+        if (hit.exact) {
+            return Object.assign(base, {street: r.street, house_number: r.house_number, full_address: r.display_name});
+        }
+        const rest = String(r.display_name || '').split(',').slice(1).join(',').trim();
+        return Object.assign(base, {
+            street: r.street,
+            house_number: item.house,
+            full_address: `${r.street} ${item.house}${rest ? ', ' + rest : ''} ${S.approxSuffix}`
+        });
+    }
+
+    async function runImport() {
+        let list = importState.agg.addresses;
+        if (!list.length || importing()) return;
+        if (state.addresses.length && !window.confirm(S.confirmReplace)) return;
+
+        const truncated = list.length > PDF().MAX_ADDRESSES;
+        if (truncated) list = list.slice(0, PDF().MAX_ADDRESSES);
+
+        importState.phase = 'running';
+        importState.abort = false;
+        importState.done = 0;
+        importState.total = list.length;
+        setImportLock(true);
+        renderImportPanel('[data-import-action="stop"]');
+
+        const standard = state.standardSeconds;
+        const resolved = [];
+        const notFound = [];
+        const approx = [];
+        let anchor = null; // Erster genauer Treffer: weitere Suchen bevorzugen die Umgebung
+        let failures = 0;
+        let fatal = '';
+
+        for (let i = 0; i < list.length; i++) {
+            if (importState.abort) break;
+            const item = list[i];
+            try {
+                const hit = await geocodeImportItem(item, anchor);
+                failures = 0;
+                if (!hit) {
+                    notFound.push(addressText(item));
+                } else {
+                    if (!anchor && hit.exact) anchor = [Number(hit.result.lat), Number(hit.result.lon)];
+                    resolved.push(addressFromHit(item, hit, standard));
+                    if (!hit.exact) approx.push(addressText(item));
+                }
+            } catch (error) {
+                failures++;
+                notFound.push(addressText(item));
+                if (failures >= 3) { // Server/Netz dauerhaft gestört: sauber beenden statt alles durchzuprobieren
+                    fatal = error.message || S.importServerError;
+                    break;
+                }
+            }
+            importState.done = i + 1;
+            updateImportProgress();
+        }
+
+        if (resolved.length) {
+            clearTimeout(routeTimer);
+            state.addresses = resolved;
+            if (importState.parsed.title) state.title = importState.parsed.title;
+            markDirty();
+            renderAddresses();
+            redrawMap(true);
+            invalidateRoute();
+        }
+
+        importState.result = {added: resolved.length, total: list.length, notFound, approx, aborted: importState.abort, fatal, truncated};
+        importState.phase = 'done';
+        setImportLock(false);
+        renderImportPanel('[data-import-action="close"]');
+    }
+
+    function reportData(calculationId) {
+        const c = compute();
+        return {
+            created_at: new Date().toISOString(),
+            calculation_id: calculationId || 0,
+            title: state.title,
+            travel_mode: state.travelMode,
+            travel_speed_kmh: state.travelSpeed,
+            standard_seconds: state.standardSeconds,
+            additional_minutes: Math.round(state.additionalMinutes),
+            route: state.route && state.route.geometry && state.route.geometry.coordinates ? {coordinates: state.route.geometry.coordinates} : null,
+            addresses: state.addresses.map(a => ({
+                street: a.street, house_number: a.house_number, full_address: a.full_address,
+                latitude: a.latitude, longitude: a.longitude, seconds: a.seconds, quantity: a.quantity || 1
+            })),
+            totals: {
+                houses: state.addresses.length,
+                distance_meters: c.distance,
+                routing_duration_seconds: state.route ? state.route.duration_seconds : 0,
+                house_seconds: c.house,
+                travel_seconds: c.travel,
+                additional_seconds: c.additional,
+                total_seconds: c.total
+            }
+        };
+    }
+
+    function downloadBytes(bytes, filename) {
+        const url = URL.createObjectURL(new Blob([bytes], {type: 'application/pdf'}));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+    }
+
+    async function createPdf(calculationId) {
+        const result = await PDF().exportReport(reportData(calculationId), libs, S.pdf);
+        downloadBytes(result.bytes, result.filename);
+        return result;
+    }
+
+    root.addEventListener('click', event => {
+        const importAction = event.target.closest('[data-import-action]')?.dataset.importAction;
+        if (importAction === 'start') runImport();
+        if (importAction === 'stop') importState.abort = true;
+        if (importAction === 'close') {
+            importState.phase = 'idle';
+            renderImportPanel();
+        }
+        if (event.target.closest('[data-action="import-pdf"]') && !readonly && !importing()) $('[data-import-file]').click();
+    });
+
+    root.addEventListener('change', event => {
+        if (event.target.matches('[data-import-file]')) {
+            const file = event.target.files && event.target.files[0];
+            event.target.value = '';
+            handleImportFile(file);
+        }
+        if (event.target.matches('[data-import-opt]')) {
+            const key = event.target.dataset.importOpt;
+            importState.options[key] = event.target.checked;
+            importState.agg = PDF().aggregateBook(importState.parsed, importState.options);
+            renderImportPanel(`[data-import-opt="${key}"]`);
+        }
     });
 
     /* ---------- Events ---------- */
@@ -752,7 +1101,7 @@
 
     if (readonly) {
         root.classList.add('is-readonly');
-        root.querySelectorAll('[data-search-field] input, [data-search-field] button, #mrs-dtc-standard-seconds, #mrs-dtc-additional-minutes, [data-action="save"], [data-mode-btn]')
+        root.querySelectorAll('[data-search-field] input, [data-search-field] button, #mrs-dtc-standard-seconds, #mrs-dtc-additional-minutes, [data-action="save"], [data-action="import-pdf"], [data-mode-btn]')
             .forEach(el => el.setAttribute('disabled', ''));
     }
 
