@@ -11,7 +11,7 @@
 .mrs-dtc * { box-sizing: border-box; }
 .mrs-dtc-header { margin-bottom: 18px; }
 .mrs-dtc-header h2 { margin: 0 0 6px; font-size: 28px; }
-.mrs-dtc-header p { margin: 0; color: #646970; }
+.mrs-dtc-header p { margin: 0; color: #fff; }
 .mrs-dtc-grid { display: grid; grid-template-columns: minmax(320px, .85fr) minmax(400px, 1.5fr); gap: 18px; }
 .mrs-dtc-panel,.mrs-dtc-map-panel,.mrs-dtc-summary,.mrs-dtc-notice {
     border: 1px solid var(--mrs-dtc-border);
@@ -153,5 +153,5 @@
 .mrs-dtc-check input { margin-top:3px; }
 .mrs-dtc-import-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
 .mrs-dtc-qty { display:inline-block; margin-left:4px; padding:0 6px; border-radius:10px; background:#2271b1; color:#fff; font-size:12px; font-weight:600; line-height:18px; vertical-align:1px; }
-.mrs-dtc-pdfopt { display:flex; align-items:center; gap:8px; margin-top:12px; font-size:14px; cursor:pointer; }
+.mrs-dtc-pdfopt { display:flex; align-items:center; gap:8px; margin-top:12px; font-size:14px; cursor:pointer; color:#fff; }
 .mrs-dtc.is-importing .mrs-dtc-list-panel, .mrs-dtc.is-importing .mrs-dtc-save-row, .mrs-dtc.is-importing [data-search-field] { opacity:.55; pointer-events:none; }
